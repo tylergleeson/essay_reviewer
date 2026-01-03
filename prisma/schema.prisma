@@ -1,0 +1,164 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+
+model User {
+  id            String    @id @default(cuid())
+  email         String    @unique
+  password      String
+  name          String?
+  role          String    @default("STUDENT")
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  applications  Application[]
+  essays        Essay[]
+  coachProfile  CoachProfile?
+  reviewedEssays Feedback[]
+  stripeCustomerId String?
+  subscription    Subscription?
+
+  @@index([email])
+  @@index([role])
+}
+
+model CoachProfile {
+  id                String   @id @default(cuid())
+  userId            String   @unique
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  bio               String?
+  turnaroundDays    Int      @default(3)
+  isAcceptingNew    Boolean  @default(true)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  packages          Package[]
+  students          StudentCoach[]
+}
+
+model StudentCoach {
+  id          String   @id @default(cuid())
+  studentId   String
+  coachId     String
+  coach       CoachProfile @relation(fields: [coachId], references: [id], onDelete: Cascade)
+  creditsRemaining Int   @default(0)
+  packageId   String?
+  package     Package? @relation(fields: [packageId], references: [id])
+  createdAt   DateTime @default(now())
+
+  @@unique([studentId, coachId])
+  @@index([studentId])
+  @@index([coachId])
+}
+
+model Package {
+  id              String   @id @default(cuid())
+  coachId         String
+  coach           CoachProfile @relation(fields: [coachId], references: [id], onDelete: Cascade)
+  name            String
+  reviewCredits   Int
+  priceInCents    Int
+  isActive        Boolean  @default(true)
+  createdAt       DateTime @default(now())
+
+  studentCoaches  StudentCoach[]
+
+  @@index([coachId])
+}
+
+model Application {
+  id              String   @id @default(cuid())
+  userId          String
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  schoolName      String
+  deadline        DateTime?
+  status          String @default("NOT_STARTED")
+  priority        Int?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  essays          Essay[]
+
+  @@index([userId])
+  @@index([deadline])
+}
+
+model Essay {
+  id              String   @id @default(cuid())
+  userId          String
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  applicationId   String?
+  application     Application? @relation(fields: [applicationId], references: [id], onDelete: SetNull)
+
+  title           String
+  prompt          String?
+  status          String @default("DRAFT")
+  wordCount       Int      @default(0)
+
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  drafts          Draft[]
+  feedback        Feedback[]
+
+  @@index([userId])
+  @@index([applicationId])
+  @@index([status])
+}
+
+model Draft {
+  id              String   @id @default(cuid())
+  essayId         String
+  essay           Essay    @relation(fields: [essayId], references: [id], onDelete: Cascade)
+  content         String
+  versionNumber   Int
+  wordCount       Int      @default(0)
+  createdAt       DateTime @default(now())
+
+  @@index([essayId])
+  @@unique([essayId, versionNumber])
+}
+
+model Feedback {
+  id              String   @id @default(cuid())
+  essayId         String
+  essay           Essay    @relation(fields: [essayId], references: [id], onDelete: Cascade)
+  coachId         String
+  coach           User     @relation(fields: [coachId], references: [id], onDelete: Cascade)
+
+  draftVersionReviewed Int
+  summaryFeedback String
+  strengths       String?
+  priorityRevisions String?
+  overallGuidance String?
+  inlineComments  String?
+  rubricScores    String?
+
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([essayId])
+  @@index([coachId])
+}
+
+model Subscription {
+  id              String   @id @default(cuid())
+  userId          String   @unique
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  stripeSubscriptionId String @unique
+  stripePriceId   String
+  status          String
+  currentPeriodEnd DateTime
+
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([userId])
+}
