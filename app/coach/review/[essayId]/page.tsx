@@ -64,6 +64,7 @@ export default function EssayReviewPage({ params }: { params: Promise<{ essayId:
   const [commentDialogOpen, setCommentDialogOpen] = useState(false)
   const [selectedText, setSelectedText] = useState({ start: 0, end: 0, text: '' })
   const [currentComment, setCurrentComment] = useState('')
+  const [studentCredits, setStudentCredits] = useState<number | null>(null)
   const [formData, setFormData] = useState({
     summaryFeedback: '',
     strengths: '',
@@ -83,6 +84,21 @@ export default function EssayReviewPage({ params }: { params: Promise<{ essayId:
         const data = await response.json()
         setEssay(data)
         setLoading(false)
+
+        // Check student's credit balance with this coach
+        try {
+          const creditsRes = await fetch('/api/credits/balance')
+          if (creditsRes.ok) {
+            const balances = await creditsRes.json()
+            // Find this student's balance
+            const studentBalance = balances.find(
+              (b: { studentId: string }) => b.studentId === data.user.id
+            )
+            setStudentCredits(studentBalance?.creditsRemaining ?? 0)
+          }
+        } catch {
+          // Non-critical — don't block review loading
+        }
       } else {
         router.push('/coach')
       }
@@ -289,6 +305,26 @@ export default function EssayReviewPage({ params }: { params: Promise<{ essayId:
           )}
         </div>
 
+        {/* Credit Warning */}
+        {studentCredits !== null && studentCredits <= 0 && (
+          <Card className="mb-6 border-red-200 bg-red-50">
+            <CardContent className="py-4">
+              <p className="text-sm font-medium text-red-800">
+                This student has no credits remaining. They need to purchase more credits before you can submit feedback.
+              </p>
+            </CardContent>
+          </Card>
+        )}
+        {studentCredits !== null && studentCredits > 0 && studentCredits <= 2 && (
+          <Card className="mb-6 border-yellow-200 bg-yellow-50">
+            <CardContent className="py-4">
+              <p className="text-sm font-medium text-yellow-800">
+                This student has {studentCredits} credit{studentCredits !== 1 ? 's' : ''} remaining. They may need to purchase more soon.
+              </p>
+            </CardContent>
+          </Card>
+        )}
+
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* Essay Content */}
           <div className="lg:col-span-2">
@@ -445,9 +481,13 @@ export default function EssayReviewPage({ params }: { params: Promise<{ essayId:
                   <Button
                     type="submit"
                     className="w-full"
-                    disabled={submitting}
+                    disabled={submitting || (studentCredits !== null && studentCredits <= 0)}
                   >
-                    {submitting ? 'Submitting...' : 'Submit Feedback'}
+                    {submitting
+                      ? 'Submitting...'
+                      : studentCredits !== null && studentCredits <= 0
+                        ? 'No Credits - Cannot Submit'
+                        : 'Submit Feedback'}
                   </Button>
                 </form>
               </CardContent>

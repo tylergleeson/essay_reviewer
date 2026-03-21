@@ -37,6 +37,26 @@ export async function POST(
       )
     }
 
+    // Check if student has credits with any coach
+    const studentCoaches = await prisma.studentCoach.findMany({
+      where: { studentId: session.user.id },
+    })
+
+    if (studentCoaches.length === 0) {
+      return NextResponse.json(
+        { error: 'You need to purchase a coaching package before submitting essays for review.' },
+        { status: 400 }
+      )
+    }
+
+    const totalCredits = studentCoaches.reduce((sum, sc) => sum + sc.creditsRemaining, 0)
+    if (totalCredits <= 0) {
+      return NextResponse.json(
+        { error: 'You have no review credits remaining. Please purchase more credits before submitting.' },
+        { status: 400 }
+      )
+    }
+
     // Update essay status to SUBMITTED
     const updatedEssay = await prisma.essay.update({
       where: { id: params.id },

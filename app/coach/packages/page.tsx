@@ -32,6 +32,9 @@ type Package = {
   priceInCents: number
   isActive: boolean
   createdAt: string
+  _count?: {
+    studentCoaches: number
+  }
 }
 
 export default function PackagesPage() {
@@ -317,6 +320,7 @@ export default function PackagesPage() {
                     <TableHead>Name</TableHead>
                     <TableHead>Reviews</TableHead>
                     <TableHead>Price</TableHead>
+                    <TableHead>Students</TableHead>
                     <TableHead>Status</TableHead>
                     <TableHead className="text-right">Actions</TableHead>
                   </TableRow>
@@ -327,6 +331,11 @@ export default function PackagesPage() {
                       <TableCell className="font-medium">{pkg.name}</TableCell>
                       <TableCell>{pkg.reviewCredits} reviews</TableCell>
                       <TableCell>${(pkg.priceInCents / 100).toFixed(2)}</TableCell>
+                      <TableCell>
+                        <span className="text-sm">
+                          {pkg._count?.studentCoaches ?? 0} purchased
+                        </span>
+                      </TableCell>
                       <TableCell>
                         <Badge variant={pkg.isActive ? 'default' : 'secondary'}>
                           {pkg.isActive ? 'Active' : 'Inactive'}

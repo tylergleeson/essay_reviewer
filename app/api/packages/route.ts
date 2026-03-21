@@ -31,6 +31,11 @@ export async function GET(req: Request) {
       where: {
         coachId: targetCoachId,
       },
+      include: {
+        _count: {
+          select: { studentCoaches: true },
+        },
+      },
       orderBy: {
         priceInCents: 'asc',
       },

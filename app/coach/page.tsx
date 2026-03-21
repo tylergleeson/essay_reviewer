@@ -169,7 +169,7 @@ export default async function CoachDashboardPage() {
             <form action={async () => {
               'use server'
               const { signOut } = await import('next-auth/react')
-              await signOut({ redirectTo: '/' })
+              await signOut({ redirect: true, callbackUrl: '/' })
             }}>
               <Button variant="outline" type="submit">Sign Out</Button>
             </form>

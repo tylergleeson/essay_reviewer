@@ -9,7 +9,7 @@ import { Badge } from '@/components/ui/badge'
 import { signOut } from 'next-auth/react'
 
 async function getDashboardData(userId: string) {
-  const [applications, essays, upcomingDeadlines] = await Promise.all([
+  const [applications, essays, upcomingDeadlines, creditBalances] = await Promise.all([
     prisma.application.count({
       where: { userId },
     }),
@@ -36,6 +36,16 @@ async function getDashboardData(userId: string) {
       orderBy: { deadline: 'asc' },
       take: 3,
     }),
+    prisma.studentCoach.findMany({
+      where: { studentId: userId },
+      include: {
+        coach: {
+          include: {
+            user: { select: { name: true, email: true } },
+          },
+        },
+      },
+    }),
   ])
 
   const essaysInProgress = await prisma.essay.count({
@@ -47,11 +57,14 @@ async function getDashboardData(userId: string) {
     },
   })
 
+  const totalCredits = creditBalances.reduce((sum, b) => sum + b.creditsRemaining, 0)
+
   return {
     totalApplications: applications,
     essaysInProgress,
     recentEssays: essays,
     upcomingDeadlines,
+    totalCredits,
   }
 }
 
@@ -87,12 +100,22 @@ export default async function DashboardPage() {
             <h1 className="text-2xl font-bold text-gray-900">Dashboard</h1>
             <p className="text-sm text-gray-600">Welcome back, {session.user.name || session.user.email}</p>
           </div>
-          <form action={async () => {
-            'use server'
-            await signOut({ redirectTo: '/' })
-          }}>
-            <Button variant="outline" type="submit">Sign Out</Button>
-          </form>
+          <div className="flex items-center gap-3">
+            <Link
+              href="/dashboard/credits"
+              className="flex items-center gap-1.5 text-sm font-medium text-gray-700 hover:text-gray-900 transition-colors"
+            >
+              <Badge variant={data.totalCredits === 0 ? 'destructive' : 'secondary'}>
+                {data.totalCredits} {data.totalCredits === 1 ? 'credit' : 'credits'}
+              </Badge>
+            </Link>
+            <form action={async () => {
+              'use server'
+              await signOut({ redirect: true, callbackUrl: '/' })
+            }}>
+              <Button variant="outline" type="submit">Sign Out</Button>
+            </form>
+          </div>
         </div>
       </header>
 
@@ -142,6 +165,9 @@ export default async function DashboardPage() {
             </Button>
             <Button asChild variant="outline">
               <Link href="/dashboard/essays?action=new">Start New Essay</Link>
+            </Button>
+            <Button asChild variant="outline">
+              <Link href="/dashboard/credits">Credits & Packages</Link>
             </Button>
           </div>
         </div>
