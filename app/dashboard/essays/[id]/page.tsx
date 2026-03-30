@@ -174,7 +174,17 @@ export default function EssayEditorPage({ params }: { params: Promise<{ id: stri
               <Button variant="outline" asChild>
                 <Link href="/dashboard/essays">Back to Essays</Link>
               </Button>
-              {essay.feedback.length > 0 && (
+              {essay.drafts.length > 0 && (
+                <Button
+                  className="bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-700 hover:to-indigo-700 text-white"
+                  asChild
+                >
+                  <Link href={`/dashboard/essays/${id}/feedback`}>
+                    ✨ AI Review & Feedback
+                  </Link>
+                </Button>
+              )}
+              {essay.feedback.length > 0 && !essay.drafts.length && (
                 <Button variant="outline" asChild>
                   <Link href={`/dashboard/essays/${id}/feedback`}>
                     View Feedback

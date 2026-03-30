@@ -15,6 +15,8 @@ type Feedback = {
   priorityRevisions: string | null
   overallGuidance: string | null
   inlineComments: any | null
+  rubricScores: string | null
+  isAI: boolean
   createdAt: string
   coach: {
     id: string
@@ -46,12 +48,44 @@ type InlineComment = {
   createdAt: string
 }
 
+type RubricScores = {
+  clarity: number
+  structure: number
+  voice: number
+  impact: number
+}
+
+function RubricBar({ label, score }: { label: string; score: number }) {
+  const percentage = (score / 10) * 100
+  const color =
+    score >= 8 ? 'bg-green-500' :
+    score >= 6 ? 'bg-blue-500' :
+    score >= 4 ? 'bg-yellow-500' :
+    'bg-red-500'
+
+  return (
+    <div className="space-y-1">
+      <div className="flex justify-between text-sm">
+        <span className="capitalize font-medium">{label}</span>
+        <span className="text-gray-600">{score}/10</span>
+      </div>
+      <div className="w-full bg-gray-200 rounded-full h-2.5">
+        <div
+          className={`h-2.5 rounded-full ${color} transition-all duration-500`}
+          style={{ width: `${percentage}%` }}
+        />
+      </div>
+    </div>
+  )
+}
+
 export default function FeedbackPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params)
   const router = useRouter()
   const [essay, setEssay] = useState<Essay | null>(null)
   const [selectedFeedback, setSelectedFeedback] = useState<Feedback | null>(null)
   const [loading, setLoading] = useState(true)
+  const [aiReviewLoading, setAiReviewLoading] = useState(false)
 
   useEffect(() => {
     fetchEssay()
@@ -76,8 +110,40 @@ export default function FeedbackPage({ params }: { params: Promise<{ id: string 
     }
   }
 
+  const requestAiReview = async () => {
+    setAiReviewLoading(true)
+    try {
+      const response = await fetch('/api/ai-review', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ essayId: id }),
+      })
+      if (response.ok) {
+        // Refresh essay data to show new feedback
+        await fetchEssay()
+      } else {
+        const data = await response.json()
+        alert(data.error || 'Failed to get AI review')
+      }
+    } catch (error) {
+      console.error('Error requesting AI review:', error)
+      alert('Failed to get AI review. Please try again.')
+    } finally {
+      setAiReviewLoading(false)
+    }
+  }
+
   const getReviewedDraft = (versionNumber: number) => {
     return essay?.drafts.find(d => d.versionNumber === versionNumber)
+  }
+
+  const parseRubricScores = (scores: string | null): RubricScores | null => {
+    if (!scores) return null
+    try {
+      return JSON.parse(scores)
+    } catch {
+      return null
+    }
   }
 
   const renderContentWithComments = (content: string, comments: InlineComment[]) => {
@@ -85,14 +151,11 @@ export default function FeedbackPage({ params }: { params: Promise<{ id: string 
       return <div className="whitespace-pre-wrap font-mono text-sm">{content}</div>
     }
 
-    // Sort comments by start index
     const sortedComments = [...comments].sort((a, b) => a.startIndex - b.startIndex)
-
     const parts: JSX.Element[] = []
     let lastIndex = 0
 
     sortedComments.forEach((comment, idx) => {
-      // Add text before comment
       if (comment.startIndex > lastIndex) {
         parts.push(
           <span key={`text-${idx}`}>
@@ -100,8 +163,6 @@ export default function FeedbackPage({ params }: { params: Promise<{ id: string 
           </span>
         )
       }
-
-      // Add highlighted comment
       parts.push(
         <mark
           key={`comment-${idx}`}
@@ -114,11 +175,9 @@ export default function FeedbackPage({ params }: { params: Promise<{ id: string 
           </span>
         </mark>
       )
-
       lastIndex = comment.endIndex
     })
 
-    // Add remaining text
     if (lastIndex < content.length) {
       parts.push(
         <span key="text-final">{content.substring(lastIndex)}</span>
@@ -138,27 +197,9 @@ export default function FeedbackPage({ params }: { params: Promise<{ id: string 
     )
   }
 
-  if (essay.feedback.length === 0) {
-    return (
-      <div className="min-h-screen bg-gray-50">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-          <Card>
-            <CardContent className="py-12 text-center">
-              <h3 className="text-lg font-medium mb-2">No Feedback Yet</h3>
-              <p className="text-gray-600 mb-4">
-                This essay hasn&apos;t received any feedback from a coach yet.
-              </p>
-              <Button asChild>
-                <Link href={`/dashboard/essays/${id}`}>Back to Editor</Link>
-              </Button>
-            </CardContent>
-          </Card>
-        </div>
-      </div>
-    )
-  }
-
+  const hasDrafts = essay.drafts.length > 0
   const reviewedDraft = selectedFeedback ? getReviewedDraft(selectedFeedback.draftVersionReviewed) : null
+  const rubricScores = selectedFeedback ? parseRubricScores(selectedFeedback.rubricScores) : null
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -173,6 +214,25 @@ export default function FeedbackPage({ params }: { params: Promise<{ id: string 
               )}
             </div>
             <div className="flex gap-2">
+              {hasDrafts && (
+                <Button
+                  onClick={requestAiReview}
+                  disabled={aiReviewLoading}
+                  className="bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-700 hover:to-indigo-700 text-white"
+                >
+                  {aiReviewLoading ? (
+                    <>
+                      <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                      </svg>
+                      AI Reviewing…
+                    </>
+                  ) : (
+                    <>✨ Get AI Review</>
+                  )}
+                </Button>
+              )}
               <Button variant="outline" asChild>
                 <Link href={`/dashboard/essays/${id}`}>Back to Editor</Link>
               </Button>
@@ -186,126 +246,191 @@ export default function FeedbackPage({ params }: { params: Promise<{ id: string 
 
           {/* Feedback Selector */}
           {essay.feedback.length > 1 && (
-            <div className="flex gap-2 mb-4">
+            <div className="flex gap-2 mb-4 flex-wrap">
               {essay.feedback.map((fb, index) => (
                 <Button
                   key={fb.id}
                   variant={selectedFeedback?.id === fb.id ? 'default' : 'outline'}
                   size="sm"
                   onClick={() => setSelectedFeedback(fb)}
+                  className={selectedFeedback?.id === fb.id && fb.isAI ? 'bg-violet-600 hover:bg-violet-700' : ''}
                 >
-                  Feedback {essay.feedback.length - index}
+                  {fb.isAI ? '✨ AI Review' : `Feedback ${essay.feedback.length - index}`}
+                  {fb.isAI && <Badge className="ml-2 bg-violet-100 text-violet-800 text-xs">AI</Badge>}
                 </Button>
               ))}
             </div>
           )}
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Essay Content with Inline Comments */}
-          <div className="lg:col-span-2">
-            <Card>
-              <CardHeader>
-                <div className="flex justify-between items-center">
-                  <CardTitle>
-                    Essay Version {selectedFeedback?.draftVersionReviewed}
-                  </CardTitle>
-                  <Badge variant="outline">Read-Only</Badge>
-                </div>
-              </CardHeader>
-              <CardContent>
-                {reviewedDraft ? (
-                  <div className="bg-gray-50 p-4 rounded border min-h-[500px]">
-                    {renderContentWithComments(
-                      reviewedDraft.content,
-                      selectedFeedback?.inlineComments as InlineComment[] || []
-                    )}
+        {essay.feedback.length === 0 ? (
+          <Card>
+            <CardContent className="py-12 text-center">
+              <h3 className="text-lg font-medium mb-2">No Feedback Yet</h3>
+              <p className="text-gray-600 mb-4">
+                This essay hasn&apos;t received any feedback yet. Try getting an AI review!
+              </p>
+              {hasDrafts && (
+                <Button
+                  onClick={requestAiReview}
+                  disabled={aiReviewLoading}
+                  className="bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-700 hover:to-indigo-700 text-white"
+                >
+                  {aiReviewLoading ? 'AI Reviewing…' : '✨ Get AI Review'}
+                </Button>
+              )}
+            </CardContent>
+          </Card>
+        ) : (
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            {/* Essay Content with Inline Comments */}
+            <div className="lg:col-span-2">
+              <Card>
+                <CardHeader>
+                  <div className="flex justify-between items-center">
+                    <CardTitle>
+                      Essay Version {selectedFeedback?.draftVersionReviewed}
+                    </CardTitle>
+                    <div className="flex gap-2 items-center">
+                      {selectedFeedback?.isAI && (
+                        <Badge className="bg-violet-100 text-violet-800 border-violet-200">
+                          ✨ AI Review
+                        </Badge>
+                      )}
+                      <Badge variant="outline">Read-Only</Badge>
+                    </div>
                   </div>
-                ) : (
-                  <p className="text-gray-500">Draft not found</p>
-                )}
-                {selectedFeedback?.inlineComments && (
-                  <p className="text-sm text-gray-600 mt-4">
-                    Hover over highlighted text to see inline comments
-                  </p>
-                )}
-              </CardContent>
-            </Card>
-          </div>
-
-          {/* Feedback Panel */}
-          <div className="space-y-4">
-            {selectedFeedback && (
-              <>
-                {/* Coach Info */}
-                <Card>
-                  <CardHeader className="pb-3">
-                    <CardTitle className="text-sm font-medium">Coach</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <p className="font-medium">{selectedFeedback.coach.name || 'Coach'}</p>
-                    <p className="text-sm text-gray-600">{selectedFeedback.coach.email}</p>
-                    <p className="text-xs text-gray-500 mt-2">
-                      {new Date(selectedFeedback.createdAt).toLocaleString()}
+                </CardHeader>
+                <CardContent>
+                  {reviewedDraft ? (
+                    <div className="bg-gray-50 p-4 rounded border min-h-[500px]">
+                      {renderContentWithComments(
+                        reviewedDraft.content,
+                        selectedFeedback?.inlineComments as InlineComment[] || []
+                      )}
+                    </div>
+                  ) : (
+                    <p className="text-gray-500">Draft not found</p>
+                  )}
+                  {selectedFeedback?.inlineComments && (
+                    <p className="text-sm text-gray-600 mt-4">
+                      Hover over highlighted text to see inline comments
                     </p>
-                  </CardContent>
-                </Card>
+                  )}
+                </CardContent>
+              </Card>
+            </div>
 
-                {/* Summary Feedback */}
-                <Card>
-                  <CardHeader>
-                    <CardTitle className="text-sm font-medium">Summary Feedback</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <p className="text-sm whitespace-pre-wrap">{selectedFeedback.summaryFeedback}</p>
-                  </CardContent>
-                </Card>
-
-                {/* Strengths */}
-                {selectedFeedback.strengths && (
-                  <Card>
-                    <CardHeader>
-                      <CardTitle className="text-sm font-medium text-green-700">
-                        Strengths
-                      </CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                      <p className="text-sm whitespace-pre-wrap">{selectedFeedback.strengths}</p>
-                    </CardContent>
-                  </Card>
-                )}
-
-                {/* Priority Revisions */}
-                {selectedFeedback.priorityRevisions && (
-                  <Card>
-                    <CardHeader>
-                      <CardTitle className="text-sm font-medium text-orange-700">
-                        Priority Revisions
-                      </CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                      <p className="text-sm whitespace-pre-wrap">{selectedFeedback.priorityRevisions}</p>
-                    </CardContent>
-                  </Card>
-                )}
-
-                {/* Overall Guidance */}
-                {selectedFeedback.overallGuidance && (
-                  <Card>
-                    <CardHeader>
+            {/* Feedback Panel */}
+            <div className="space-y-4">
+              {selectedFeedback && (
+                <>
+                  {/* AI or Coach Badge */}
+                  <Card className={selectedFeedback.isAI ? 'border-violet-200 bg-violet-50/50' : ''}>
+                    <CardHeader className="pb-3">
                       <CardTitle className="text-sm font-medium">
-                        Overall Guidance
+                        {selectedFeedback.isAI ? '✨ AI Coach' : 'Coach'}
                       </CardTitle>
                     </CardHeader>
                     <CardContent>
-                      <p className="text-sm whitespace-pre-wrap">{selectedFeedback.overallGuidance}</p>
+                      {selectedFeedback.isAI ? (
+                        <div>
+                          <p className="font-medium text-violet-700">Draftly AI</p>
+                          <p className="text-sm text-violet-600">Powered by Claude</p>
+                        </div>
+                      ) : (
+                        <div>
+                          <p className="font-medium">{selectedFeedback.coach.name || 'Coach'}</p>
+                          <p className="text-sm text-gray-600">{selectedFeedback.coach.email}</p>
+                        </div>
+                      )}
+                      <p className="text-xs text-gray-500 mt-2">
+                        {new Date(selectedFeedback.createdAt).toLocaleString()}
+                      </p>
                     </CardContent>
                   </Card>
-                )}
-              </>
-            )}
+
+                  {/* Rubric Scores */}
+                  {rubricScores && (
+                    <Card className={selectedFeedback.isAI ? 'border-violet-200' : ''}>
+                      <CardHeader>
+                        <CardTitle className="text-sm font-medium">
+                          {selectedFeedback.isAI ? '📊 AI Rubric Scores' : '📊 Rubric Scores'}
+                        </CardTitle>
+                      </CardHeader>
+                      <CardContent className="space-y-3">
+                        <RubricBar label="clarity" score={rubricScores.clarity} />
+                        <RubricBar label="structure" score={rubricScores.structure} />
+                        <RubricBar label="voice" score={rubricScores.voice} />
+                        <RubricBar label="impact" score={rubricScores.impact} />
+                        <div className="pt-2 border-t">
+                          <div className="flex justify-between text-sm font-medium">
+                            <span>Overall</span>
+                            <span>
+                              {((rubricScores.clarity + rubricScores.structure + rubricScores.voice + rubricScores.impact) / 4).toFixed(1)}/10
+                            </span>
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  )}
+
+                  {/* Summary Feedback */}
+                  <Card className={selectedFeedback.isAI ? 'border-violet-200' : ''}>
+                    <CardHeader>
+                      <CardTitle className="text-sm font-medium">Summary Feedback</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <p className="text-sm whitespace-pre-wrap">{selectedFeedback.summaryFeedback}</p>
+                    </CardContent>
+                  </Card>
+
+                  {/* Strengths */}
+                  {selectedFeedback.strengths && (
+                    <Card className={selectedFeedback.isAI ? 'border-green-200 bg-green-50/30' : ''}>
+                      <CardHeader>
+                        <CardTitle className="text-sm font-medium text-green-700">
+                          💪 Strengths
+                        </CardTitle>
+                      </CardHeader>
+                      <CardContent>
+                        <p className="text-sm whitespace-pre-wrap">{selectedFeedback.strengths}</p>
+                      </CardContent>
+                    </Card>
+                  )}
+
+                  {/* Priority Revisions */}
+                  {selectedFeedback.priorityRevisions && (
+                    <Card className={selectedFeedback.isAI ? 'border-orange-200 bg-orange-50/30' : ''}>
+                      <CardHeader>
+                        <CardTitle className="text-sm font-medium text-orange-700">
+                          🎯 Priority Revisions
+                        </CardTitle>
+                      </CardHeader>
+                      <CardContent>
+                        <p className="text-sm whitespace-pre-wrap">{selectedFeedback.priorityRevisions}</p>
+                      </CardContent>
+                    </Card>
+                  )}
+
+                  {/* Overall Guidance */}
+                  {selectedFeedback.overallGuidance && (
+                    <Card className={selectedFeedback.isAI ? 'border-blue-200 bg-blue-50/30' : ''}>
+                      <CardHeader>
+                        <CardTitle className="text-sm font-medium text-blue-700">
+                          🧭 Overall Guidance
+                        </CardTitle>
+                      </CardHeader>
+                      <CardContent>
+                        <p className="text-sm whitespace-pre-wrap">{selectedFeedback.overallGuidance}</p>
+                      </CardContent>
+                    </Card>
+                  )}
+                </>
+              )}
+            </div>
           </div>
-        </div>
+        )}
       </div>
     </div>
   )
