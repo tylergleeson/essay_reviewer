@@ -37,7 +37,7 @@ export default function SignInPage() {
       // Redirect based on role (we'll get this from the session)
       router.push('/dashboard')
       router.refresh()
-    } catch (error) {
+    } catch {
       setError('An error occurred. Please try again.')
       setLoading(false)
     }

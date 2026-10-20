@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { Suspense, useEffect, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import {
@@ -43,7 +43,7 @@ type Application = {
   schoolName: string
 }
 
-export default function EssaysPage() {
+function EssaysContent() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const [essays, setEssays] = useState<Essay[]>([])
@@ -306,5 +306,19 @@ export default function EssaysPage() {
         )}
       </div>
     </div>
+  )
+}
+
+export default function EssaysPage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen bg-gray-50">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+          <div className="animate-pulse">Loading...</div>
+        </div>
+      </div>
+    }>
+      <EssaysContent />
+    </Suspense>
   )
 }

@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { Suspense, useEffect, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import {
@@ -30,19 +30,18 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import Link from 'next/link'
-import { useRouter, useSearchParams } from 'next/navigation'
+import { useSearchParams } from 'next/navigation'
 
 type Application = {
   id: string
   schoolName: string
   deadline: string | null
   status: string
-  essays: any[]
+  essays: { id: string }[]
   createdAt: string
 }
 
-export default function ApplicationsPage() {
-  const router = useRouter()
+function ApplicationsContent() {
   const searchParams = useSearchParams()
   const [applications, setApplications] = useState<Application[]>([])
   const [loading, setLoading] = useState(true)
@@ -311,5 +310,19 @@ export default function ApplicationsPage() {
         )}
       </div>
     </div>
+  )
+}
+
+export default function ApplicationsPage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen bg-gray-50">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+          <div className="animate-pulse">Loading...</div>
+        </div>
+      </div>
+    }>
+      <ApplicationsContent />
+    </Suspense>
   )
 }

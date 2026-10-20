@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
+import { updateCoachStats } from '@/lib/prioritization'
 
 export async function POST(req: Request) {
   try {
@@ -21,6 +22,7 @@ export async function POST(req: Request) {
       inlineComments,
       rubricScores,
       status,
+      reviewSessionId,
     } = body
 
     if (!essayId || !summaryFeedback) {
@@ -62,7 +64,7 @@ export async function POST(req: Request) {
         strengths,
         priorityRevisions,
         overallGuidance,
-        inlineComments: inlineComments || null,
+        inlineComments: inlineComments ? JSON.stringify(inlineComments) : null,
         rubricScores: rubricScores || null,
       },
     })
@@ -76,13 +78,99 @@ export async function POST(req: Request) {
       },
     })
 
-    // TODO: Decrement coach credits from StudentCoach if applicable
-    // This would require checking if there's a StudentCoach relationship
-    // and decrementing creditsRemaining
+    // Create notification for student
+    const statusText = newStatus === 'APPROVED'
+      ? 'Your essay has been approved!'
+      : 'Your coach has left feedback for you to review.'
 
-    // TODO: Send email notification to student
+    await prisma.studentNotification.create({
+      data: {
+        userId: essay.userId,
+        essayId,
+        type: 'FEEDBACK_POSTED',
+        title: `Feedback Ready: ${essay.title}`,
+        message: statusText,
+      },
+    })
 
-    return NextResponse.json(feedback, { status: 201 })
+    // Complete the review session if one exists
+    let reviewDurationMinutes = 0
+    if (reviewSessionId) {
+      const reviewSession = await prisma.reviewSession.findUnique({
+        where: { id: reviewSessionId },
+      })
+
+      if (reviewSession && reviewSession.coachId === session.user.id) {
+        const endedAt = new Date()
+        reviewDurationMinutes = Math.floor(
+          (endedAt.getTime() - new Date(reviewSession.startedAt).getTime()) / 60000
+        )
+
+        await prisma.reviewSession.update({
+          where: { id: reviewSessionId },
+          data: {
+            status: 'COMPLETED',
+            endedAt,
+            durationMinutes: reviewDurationMinutes,
+            draftFeedback: null,
+            draftComments: null,
+          },
+        })
+
+        // Update work session essay count if applicable
+        if (reviewSession.workSessionId) {
+          await prisma.coachWorkSession.update({
+            where: { id: reviewSession.workSessionId },
+            data: {
+              essaysCompleted: { increment: 1 },
+            },
+          })
+        }
+
+        // Update coach stats
+        await updateCoachStats(session.user.id, reviewDurationMinutes, essay.wordCount)
+      }
+    } else {
+      // Check for any in-progress review session for this essay
+      const activeReview = await prisma.reviewSession.findFirst({
+        where: {
+          essayId,
+          coachId: session.user.id,
+          status: 'IN_PROGRESS',
+        },
+      })
+
+      if (activeReview) {
+        const endedAt = new Date()
+        reviewDurationMinutes = Math.floor(
+          (endedAt.getTime() - new Date(activeReview.startedAt).getTime()) / 60000
+        )
+
+        await prisma.reviewSession.update({
+          where: { id: activeReview.id },
+          data: {
+            status: 'COMPLETED',
+            endedAt,
+            durationMinutes: reviewDurationMinutes,
+            draftFeedback: null,
+            draftComments: null,
+          },
+        })
+
+        if (activeReview.workSessionId) {
+          await prisma.coachWorkSession.update({
+            where: { id: activeReview.workSessionId },
+            data: {
+              essaysCompleted: { increment: 1 },
+            },
+          })
+        }
+
+        await updateCoachStats(session.user.id, reviewDurationMinutes, essay.wordCount)
+      }
+    }
+
+    return NextResponse.json({ ...feedback, reviewDurationMinutes }, { status: 201 })
   } catch (error) {
     console.error('Error creating feedback:', error)
     return NextResponse.json(

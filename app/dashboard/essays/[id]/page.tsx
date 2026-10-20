@@ -5,7 +5,6 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Textarea } from '@/components/ui/textarea'
 import { Badge } from '@/components/ui/badge'
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 
@@ -26,7 +25,12 @@ type Essay = {
     wordCount: number
     createdAt: string
   }[]
-  feedback: any[]
+  feedback: {
+    id: string
+    draftVersionReviewed: number
+    summaryFeedback: string
+    createdAt: string
+  }[]
 }
 
 export default function EssayEditorPage({ params }: { params: Promise<{ id: string }> }) {
@@ -39,11 +43,7 @@ export default function EssayEditorPage({ params }: { params: Promise<{ id: stri
   const [saveStatus, setSaveStatus] = useState<'saved' | 'saving' | 'unsaved'>('saved')
   const [wordCount, setWordCount] = useState(0)
 
-  useEffect(() => {
-    fetchEssay()
-  }, [id])
-
-  const fetchEssay = async () => {
+  const fetchEssay = useCallback(async () => {
     try {
       const response = await fetch(`/api/essays/${id}`)
       if (response.ok) {
@@ -62,7 +62,11 @@ export default function EssayEditorPage({ params }: { params: Promise<{ id: stri
       console.error('Error fetching essay:', error)
       router.push('/dashboard/essays')
     }
-  }
+  }, [id, router])
+
+  useEffect(() => {
+    fetchEssay()
+  }, [fetchEssay])
 
   const saveDraft = useCallback(async (contentToSave: string) => {
     if (!contentToSave.trim()) return
@@ -92,7 +96,7 @@ export default function EssayEditorPage({ params }: { params: Promise<{ id: stri
     } finally {
       setSaving(false)
     }
-  }, [id])
+  }, [id, fetchEssay])
 
   // Auto-save with debounce
   useEffect(() => {
@@ -295,7 +299,7 @@ export default function EssayEditorPage({ params }: { params: Promise<{ id: stri
                 </CardHeader>
                 <CardContent>
                   <div className="space-y-3">
-                    {essay.feedback.slice(0, 3).map((fb: any) => (
+                    {essay.feedback.slice(0, 3).map((fb) => (
                       <div key={fb.id} className="border-l-4 border-blue-500 pl-3">
                         <p className="text-sm font-medium">Version {fb.draftVersionReviewed}</p>
                         <p className="text-xs text-gray-600 line-clamp-2">

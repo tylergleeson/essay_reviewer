@@ -24,6 +24,15 @@ model User {
   stripeCustomerId String?
   subscription    Subscription?
 
+  // Coach planning & scheduling relations
+  workSessions       CoachWorkSession[]
+  reviewSessions     ReviewSession[]
+  coachAvailability  CoachAvailability[]
+  feedbackTemplates  FeedbackTemplate[]
+  studentCohorts     StudentCohort[]
+  cohortMemberships  CohortMember[]
+  notifications      StudentNotification[]
+
   @@index([email])
   @@index([role])
 }
@@ -50,7 +59,9 @@ model StudentCoach {
   creditsRemaining Int   @default(0)
   packageId   String?
   package     Package? @relation(fields: [packageId], references: [id])
+  coachNotes  String?  // Private notes for coach about this student
   createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
   @@unique([studentId, coachId])
   @@index([studentId])
@@ -80,6 +91,7 @@ model Application {
   deadline        DateTime?
   status          String @default("NOT_STARTED")
   priority        Int?
+  admissionRound  String?  // ED1, ED2, EA, REA, RD, ROLLING
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
@@ -87,6 +99,7 @@ model Application {
 
   @@index([userId])
   @@index([deadline])
+  @@index([admissionRound])
 }
 
 model Essay {
@@ -100,16 +113,28 @@ model Essay {
   prompt          String?
   status          String @default("DRAFT")
   wordCount       Int      @default(0)
+  wordLimit       Int?     // Max words allowed for this essay
+
+  // Planning & scheduling fields
+  estimatedReviewMinutes Int?     // Calculated from word count + coach velocity
+  priorityScore          Int?     // 0-100, auto-calculated
+  studentUrgentFlag      Boolean  @default(false)
+  urgentFlagReason       String?
+  submittedAt            DateTime? // When student submitted for review
 
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
   drafts          Draft[]
   feedback        Feedback[]
+  reviewSessions  ReviewSession[]
+  notifications   StudentNotification[]
 
   @@index([userId])
   @@index([applicationId])
   @@index([status])
+  @@index([priorityScore])
+  @@index([submittedAt])
 }
 
 model Draft {
@@ -161,4 +186,203 @@ model Subscription {
   updatedAt       DateTime @updatedAt
 
   @@index([userId])
+}
+
+// ============================================
+// Planning & Scheduling System Models
+// ============================================
+
+// Track work sessions for time analytics
+model CoachWorkSession {
+  id                     String    @id @default(cuid())
+  coachId                String
+  coach                  User      @relation(fields: [coachId], references: [id], onDelete: Cascade)
+  startedAt              DateTime  @default(now())
+  endedAt                DateTime?
+  plannedDurationMinutes Int?      // How long the coach planned to work
+  actualDurationMinutes  Int?      // Calculated when session ends
+  status                 String    @default("ACTIVE") // ACTIVE, COMPLETED, ABANDONED
+  essaysCompleted        Int       @default(0)
+
+  reviewSessions         ReviewSession[]
+
+  createdAt              DateTime  @default(now())
+  updatedAt              DateTime  @updatedAt
+
+  @@index([coachId])
+  @@index([status])
+  @@index([startedAt])
+}
+
+// Track individual essay reviews (for time estimates + resume)
+model ReviewSession {
+  id               String    @id @default(cuid())
+  workSessionId    String?
+  workSession      CoachWorkSession? @relation(fields: [workSessionId], references: [id], onDelete: SetNull)
+  essayId          String
+  essay            Essay     @relation(fields: [essayId], references: [id], onDelete: Cascade)
+  coachId          String
+  coach            User      @relation(fields: [coachId], references: [id], onDelete: Cascade)
+
+  startedAt        DateTime  @default(now())
+  endedAt          DateTime?
+  durationMinutes  Int?      // Calculated when completed
+
+  // Draft state for resume functionality
+  draftFeedback    String?   // JSON - partial feedback fields
+  draftComments    String?   // JSON - partial inline comments
+  lastSavedAt      DateTime?
+
+  status           String    @default("IN_PROGRESS") // IN_PROGRESS, COMPLETED, PAUSED, ABANDONED
+
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  @@index([coachId])
+  @@index([essayId])
+  @@index([status])
+  @@index([workSessionId])
+}
+
+// Coach availability for calendar and scheduling
+model CoachAvailability {
+  id           String    @id @default(cuid())
+  coachId      String
+  coach        User      @relation(fields: [coachId], references: [id], onDelete: Cascade)
+
+  // For recurring availability
+  dayOfWeek    Int?      // 0=Sunday, 1=Monday, ..., 6=Saturday
+  startTime    String?   // "09:00" (HH:mm format)
+  endTime      String?   // "17:00"
+
+  // For one-time availability or blackout dates
+  specificDate DateTime?
+  isBlackout   Boolean   @default(false) // True = vacation/unavailable
+
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@index([coachId])
+  @@index([dayOfWeek])
+  @@index([specificDate])
+}
+
+// Feedback templates for efficiency
+model FeedbackTemplate {
+  id         String   @id @default(cuid())
+  coachId    String
+  coach      User     @relation(fields: [coachId], references: [id], onDelete: Cascade)
+
+  name       String
+  category   String?  // "strengths", "common_issues", "quick_approval", etc.
+  content    String
+  usageCount Int      @default(0)
+
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([coachId])
+  @@index([category])
+}
+
+// Student grouping (cohorts)
+model StudentCohort {
+  id          String   @id @default(cuid())
+  coachId     String
+  coach       User     @relation(fields: [coachId], references: [id], onDelete: Cascade)
+
+  name        String
+  description String?
+  color       String?  // Hex color for UI display
+
+  members     CohortMember[]
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([coachId])
+}
+
+// Join table for cohort membership
+model CohortMember {
+  id        String   @id @default(cuid())
+  cohortId  String
+  cohort    StudentCohort @relation(fields: [cohortId], references: [id], onDelete: Cascade)
+  studentId String
+  student   User     @relation(fields: [studentId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@unique([cohortId, studentId])
+  @@index([cohortId])
+  @@index([studentId])
+}
+
+// Coach statistics for time estimation calibration
+model CoachStats {
+  id                        String   @id @default(cuid())
+  coachId                   String   @unique
+
+  // Review velocity metrics
+  totalReviewsCompleted     Int      @default(0)
+  totalReviewMinutes        Int      @default(0)
+  avgMinutesPerReview       Float?
+  avgMinutesPerHundredWords Float?   // Key metric for time estimation
+
+  // Productivity tracking
+  totalWorkSessions         Int      @default(0)
+  totalWorkMinutes          Int      @default(0)
+  avgSessionDurationMinutes Float?
+
+  updatedAt                 DateTime @updatedAt
+
+  @@index([coachId])
+}
+
+// Notification preferences for coaches
+model NotificationPreference {
+  id                    String   @id @default(cuid())
+  userId                String   @unique
+
+  // Email settings
+  dailyDigestEnabled    Boolean  @default(true)
+  dailyDigestTime       String?  // "09:00" - when to send digest
+
+  // Deadline warnings
+  deadlineWarning3Days  Boolean  @default(true)
+  deadlineWarning1Day   Boolean  @default(true)
+
+  // Activity reminders
+  inactivityReminderDays Int?    // Remind after N days of no login
+
+  // Quiet hours
+  quietHoursEnabled     Boolean  @default(false)
+  quietHoursStart       String?  // "22:00"
+  quietHoursEnd         String?  // "08:00"
+
+  // Vacation mode
+  vacationModeEnabled   Boolean  @default(false)
+  vacationModeUntil     DateTime?
+
+  updatedAt             DateTime @updatedAt
+}
+
+// Student notifications (for feedback ready, deadline warnings, etc.)
+model StudentNotification {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  essayId   String?
+  essay     Essay?   @relation(fields: [essayId], references: [id], onDelete: SetNull)
+
+  type      String   // FEEDBACK_POSTED, DEADLINE_WARNING, MESSAGE
+  title     String
+  message   String
+  read      Boolean  @default(false)
+  readAt    DateTime?
+
+  createdAt DateTime @default(now())
+
+  @@index([userId, read])
+  @@index([userId, createdAt])
 }

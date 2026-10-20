@@ -18,6 +18,13 @@ export async function GET(
       where: { id: params.id },
       include: {
         application: true,
+        user: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+          },
+        },
         drafts: {
           orderBy: { versionNumber: 'desc' },
         },
@@ -36,8 +43,82 @@ export async function GET(
       },
     })
 
-    if (!essay || essay.userId !== session.user.id) {
+    if (!essay) {
       return NextResponse.json({ error: 'Not found' }, { status: 404 })
+    }
+
+    // Students can only access their own essays
+    if (session.user.role !== 'COACH' && essay.userId !== session.user.id) {
+      return NextResponse.json({ error: 'Not found' }, { status: 404 })
+    }
+
+    // If coach is viewing, include coach-specific context
+    if (session.user.role === 'COACH') {
+      // Get coach notes for this student
+      const studentCoach = await prisma.studentCoach.findUnique({
+        where: {
+          studentId_coachId: {
+            studentId: essay.userId,
+            coachId: session.user.id,
+          },
+        },
+        select: {
+          coachNotes: true,
+          creditsRemaining: true,
+          package: {
+            select: {
+              name: true,
+              reviewCredits: true,
+            },
+          },
+        },
+      })
+
+      // Get student's other essays for context
+      const studentOtherEssays = await prisma.essay.findMany({
+        where: {
+          userId: essay.userId,
+          id: { not: essay.id },
+        },
+        select: {
+          id: true,
+          title: true,
+          status: true,
+          application: {
+            select: {
+              schoolName: true,
+            },
+          },
+        },
+        orderBy: { updatedAt: 'desc' },
+        take: 5,
+      })
+
+      // Get student's cohort memberships
+      const cohortMemberships = await prisma.cohortMember.findMany({
+        where: { studentId: essay.userId },
+        include: {
+          cohort: {
+            select: {
+              id: true,
+              name: true,
+              color: true,
+            },
+          },
+        },
+      })
+
+      return NextResponse.json({
+        ...essay,
+        coachContext: {
+          coachNotes: studentCoach?.coachNotes || null,
+          creditsRemaining: studentCoach?.creditsRemaining || null,
+          packageName: studentCoach?.package?.name || null,
+          reviewCredits: studentCoach?.package?.reviewCredits || null,
+          studentOtherEssays,
+          cohorts: cohortMemberships.map(m => m.cohort),
+        },
+      })
     }
 
     return NextResponse.json(essay)

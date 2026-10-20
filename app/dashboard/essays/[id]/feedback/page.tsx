@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, use } from 'react'
+import { useEffect, useState, use, useCallback } from 'react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -14,7 +14,7 @@ type Feedback = {
   strengths: string | null
   priorityRevisions: string | null
   overallGuidance: string | null
-  inlineComments: any | null
+  inlineComments: InlineComment[] | null
   createdAt: string
   coach: {
     id: string
@@ -53,11 +53,7 @@ export default function FeedbackPage({ params }: { params: Promise<{ id: string 
   const [selectedFeedback, setSelectedFeedback] = useState<Feedback | null>(null)
   const [loading, setLoading] = useState(true)
 
-  useEffect(() => {
-    fetchEssay()
-  }, [id])
-
-  const fetchEssay = async () => {
+  const fetchEssay = useCallback(async () => {
     try {
       const response = await fetch(`/api/essays/${id}`)
       if (response.ok) {
@@ -74,7 +70,11 @@ export default function FeedbackPage({ params }: { params: Promise<{ id: string 
       console.error('Error fetching essay:', error)
       router.push('/dashboard/essays')
     }
-  }
+  }, [id, router])
+
+  useEffect(() => {
+    fetchEssay()
+  }, [fetchEssay])
 
   const getReviewedDraft = (versionNumber: number) => {
     return essay?.drafts.find(d => d.versionNumber === versionNumber)
